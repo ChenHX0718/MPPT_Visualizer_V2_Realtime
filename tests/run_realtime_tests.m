@@ -56,6 +56,29 @@ assert(numel(buffer.records) == 10, '滚动缓存没有限制到 10 点。');
 assert(isfinite(replayData.SolarPower_W(end)) && replayData.SolarPower_W(end) > 0, ...
     'Replay 实时功率没有正确更新。');
 
+% 数学验证：40 V、2 A 持续 3600 s 应得到 80 Wh 和 2000 mAh。
+mathRecords = { ...
+    struct('Uptime_s', 0, 'Solar_V', 40, 'Solar_A', 2), ...
+    struct('Uptime_s', 3600, 'Solar_V', 40, 'Solar_A', 2)};
+mathData = mppt.processMPPTData(mathRecords, 1);
+assert(abs(mathData.SolarPower_W(end) - 80) < 1e-12, ...
+    'V x I 实时功率验证失败。');
+assert(abs(mathData.Energy_Wh(end) - 80) < 1e-12, ...
+    'Wh 梯形积分验证失败。');
+assert(abs(mathData.Capacity_mAh(end) - 2000) < 1e-12, ...
+    'mAh 梯形积分验证失败。');
+
+% 滚动曲线只保留最近点，但会话累计值不能因窗口滚动而归零。
+rollingBuffer = mppt.realtimeBuffer('create', 10);
+for k = 0:11
+    rollingRecord = struct('Uptime_s', k, 'Solar_V', 40, 'Solar_A', 2);
+    [rollingBuffer, rollingData] = mppt.realtimeBuffer('append', rollingBuffer, rollingRecord); %#ok<ASGLU>
+end
+assert(abs(rollingData.Energy_Wh(end) - 11 * 80 / 3600) < 1e-12, ...
+    '滚动缓存 Wh 累计值不连续。');
+assert(abs(rollingData.Capacity_mAh(end) - 11 * 2 * 1000 / 3600) < 1e-12, ...
+    '滚动缓存 mAh 累计值不连续。');
+
 % 用原始接收行写出一份临时实时日志，再走历史入口回读。
 tempLog = [tempname, '.log'];
 writeFid = fopen(tempLog, 'w', 'n', 'UTF-8');

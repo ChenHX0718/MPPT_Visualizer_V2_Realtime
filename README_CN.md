@@ -16,7 +16,7 @@ MPPT_Visualizer
 
 ### 历史文件
 
-选择“历史文件”，点击“打开文件”，选择 `.txt` 或 `.log`。程序逐行解析带 `#` 前缀的 JSON，自动跳过空行、串口提示、非 JSON 行和坏 JSON，并显示电池电压、太阳能功率、累计能量和状态数据。
+选择“历史文件”，点击“打开文件”，选择 `.txt` 或 `.log`。程序逐行解析带 `#` 前缀的 JSON，自动跳过空行、串口提示、非 JSON 行和坏 JSON，并显示太阳能板电压、太阳能电流、实时功率、累计 Wh、累计 mAh 和 Error Flag。
 
 ### 模拟实时 / Replay
 
@@ -58,7 +58,7 @@ realtime_logs\MPPT_YYYYMMDD_HHMMSS.log
 # {"Uptime_s":151,"Bat_V":24.16,"Bat_A":7.54,"SOC_pct":97,"ChgState":0,"DCDCState":1,"Solar_V":42.12,"Solar_A":-4.34,"Load_A":0.03,"LoadBus_V":24.16,"ErrorFlags":0,"SolarInDay_Wh":1.62}
 ```
 
-重点字段包括 `Uptime_s`、`Bat_V`、`Bat_A`、`Solar_V`、`Solar_A`、`Load_A`、`LoadBus_V`、`SOC_pct`、`ChgState`、`DCDCState`、`ErrorFlags` 和 `SolarInDay_Wh`。`Solar_A_raw` 保留原始符号；根据多个有效样本判断方向后生成 `Solar_A_generation`，再计算 `SolarPower_W`。
+重点字段包括 `Uptime_s`、`Bat_V`、`Bat_A`、`Solar_V`、`Solar_A`、`Load_A`、`LoadBus_V`、`SOC_pct`、`ChgState`、`DCDCState`、`ErrorFlags` 和 `SolarInDay_Wh`。`Solar_A_raw` 保留原始符号；根据多个有效样本判断方向后生成 `Solar_A_generation`，再计算 `SolarPower_W = Solar_V × Solar_A_generation`。界面上的 `Energy_Wh` 和 `Capacity_mAh` 均从当前数据序列的有效功率/电流按 `Uptime_s` 进行梯形积分，设备原始 `SolarInDay_Wh` 不会被带入新的实时采集。
 
 ## 文件结构
 
@@ -66,7 +66,7 @@ realtime_logs\MPPT_YYYYMMDD_HHMMSS.log
 - `+mppt/parseTelemetryLine.m`：历史/实时共用的单行 JSON 解析器。
 - `+mppt/parseHistoryLog.m`：逐行历史文件读取，调用共用解析器。
 - `+mppt/realtimeBuffer.m`：固定长度滚动缓存和多样本 Solar_A 符号锁定。
-- `+mppt/processMPPTData.m`：历史/实时共用数据标准化和功率/能量计算。
+- `+mppt/processMPPTData.m`：历史/实时共用数据标准化、功率、Wh 和 mAh 计算。
 - `+mppt/loadHistoryFile.m`、`calculateMetrics.m`、`formatMPPTState.m`：历史入口、指标和状态显示。
 - `realtime_logs/`：实时串口原始日志输出目录。
 - `tests/run_mppt_tests.m`：V1 历史回归测试。

@@ -78,26 +78,52 @@ end
 data.Solar_A_generation = signFactor .* data.Solar_A_raw;
 data.SolarPower_W = data.Solar_V .* data.Solar_A_generation;
 
-rawEnergyValid = isfinite(data.SolarInDay_Wh);
-if any(rawEnergyValid)
-    data.Energy_Wh = data.SolarInDay_Wh;
-    data.energyIsComputed = false;
-    data.energySource = '原始字段 SolarInDay_Wh';
-else
-    powerForIntegration = data.SolarPower_W;
-    powerForIntegration(~isfinite(powerForIntegration)) = 0;
-    powerForIntegration = max(powerForIntegration, 0);
-    if n < 2
-        data.Energy_Wh = zeros(n, 1);
-    else
-        data.Energy_Wh = cumtrapz(data.Time_s, powerForIntegration) ./ 3600;
-    end
-    data.energyIsComputed = true;
-    data.energySource = '由 SolarPower_W 积分计算';
-end
+% Wh 和 mAh 都从本次传入的数据序列起算，避免把设备开机前的日累计值
+% 带入新的实时采集。积分使用 Uptime_s（可用时）提供的真实时间间隔。
+powerForIntegration = data.SolarPower_W;
+powerForIntegration(~isfinite(powerForIntegration)) = 0;
+powerForIntegration = max(powerForIntegration, 0);
+data.Energy_Wh = localCumulativeIntegral(data.Time_s, powerForIntegration) ./ 3600;
+data.energyIsComputed = true;
+data.energySource = '由 SolarPower_W 梯形积分计算';
+
+currentForIntegration = data.Solar_A_generation;
+currentForIntegration(~isfinite(currentForIntegration)) = 0;
+currentForIntegration = max(currentForIntegration, 0);
+data.Capacity_mAh = localCumulativeIntegral(data.Time_s, currentForIntegration) .* 1000 ./ 3600;
+data.capacityIsComputed = true;
+data.capacitySource = '由 Solar_A_generation 梯形积分计算';
 
 data.report = localReport(records, data);
 data.metrics = mppt.calculateMetrics(data);
+end
+
+function cumulative = localCumulativeIntegral(time_s, values)
+%LOCALCUMULATIVEINTEGRAL 以实际时间间隔执行非负梯形积分。
+cumulative = zeros(size(values));
+if isempty(values)
+    return;
+end
+
+lastValid = 0;
+for k = 1:numel(values)
+    if ~isfinite(time_s(k)) || ~isfinite(values(k))
+        if lastValid > 0
+            cumulative(k) = cumulative(lastValid);
+        end
+        continue;
+    end
+    if lastValid > 0
+        dt = time_s(k) - time_s(lastValid);
+        if isfinite(dt) && dt > 0
+            cumulative(k) = cumulative(lastValid) + ...
+                0.5 .* (values(k) + values(lastValid)) .* dt;
+        else
+            cumulative(k) = cumulative(lastValid);
+        end
+    end
+    lastValid = k;
+end
 end
 
 function values = localNumericField(records, name)

@@ -27,7 +27,8 @@ assert(abs(data.metrics.Pmax_W - 197.6068) < 1e-8, 'Pmax 计算不符。');
 assert(abs(data.metrics.V_at_Pmax_V - 43.24) < 1e-8, 'Pmax 对应电压不符。');
 assert(abs(data.metrics.I_at_Pmax_A - 4.57) < 1e-8, 'Pmax 对应发电电流不符。');
 assert(data.metrics.Uptime_at_Pmax_s == 344, 'Pmax 对应 Uptime 不符。');
-assert(strcmp(data.energySource, '原始字段 SolarInDay_Wh'), '能量图未优先使用原始累计字段。');
+assert(strcmp(data.energySource, '由 SolarPower_W 梯形积分计算'), ...
+    '历史能量未按 SolarPower_W 梯形积分计算。');
 
 [partialData, ~] = mppt.loadHistoryFile(partialFile);
 assert(partialData.energyIsComputed, '缺少 SolarInDay_Wh 时未走积分回退。');

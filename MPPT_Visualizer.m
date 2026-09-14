@@ -37,7 +37,7 @@ state.report = [];
 state.closing = false;
 
 rootGrid = uigridlayout(fig, [3 1]);
-rootGrid.RowHeight = {128, '1x', 24};
+rootGrid.RowHeight = {132, '1x', 26};
 rootGrid.ColumnWidth = {'1x'};
 rootGrid.Padding = [22 16 22 10];
 rootGrid.RowSpacing = 12;
@@ -46,7 +46,7 @@ rootGrid.BackgroundColor = colors.background;
 header = uipanel(rootGrid, 'BorderType', 'none', 'BackgroundColor', colors.background);
 header.Layout.Row = 1;
 headerGrid = uigridlayout(header, [3 1]);
-headerGrid.RowHeight = {42, 48, 24};
+headerGrid.RowHeight = {46, 50, 24};
 headerGrid.Padding = [0 0 0 0];
 headerGrid.RowSpacing = 5;
 headerGrid.BackgroundColor = colors.background;
@@ -87,7 +87,7 @@ controlGrid.ColumnSpacing = 10;
 controlGrid.BackgroundColor = colors.background;
 
 historyPanel = uipanel(controlGrid, 'Title', '历史文件', 'FontName', fontName, ...
-    'FontSize', 10, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
+    'FontSize', 11, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
     'BackgroundColor', colors.surface);
 historyPanel.Layout.Column = 1;
 historyGrid = uigridlayout(historyPanel, [1 2]);
@@ -104,7 +104,7 @@ reloadButton = uibutton(historyGrid, 'push', 'Text', '重新载入', ...
     'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @reloadFile);
 
 serialPanel = uipanel(controlGrid, 'Title', '实时串口（只读）', 'FontName', fontName, ...
-    'FontSize', 10, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
+    'FontSize', 11, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
     'BackgroundColor', colors.surface);
 serialPanel.Layout.Column = 2;
 serialGrid = uigridlayout(serialPanel, [1 7]);
@@ -112,24 +112,24 @@ serialGrid.ColumnWidth = {42, '1.15x', 58, 78, 58, 58, 70};
 serialGrid.Padding = [6 2 6 4];
 serialGrid.ColumnSpacing = 5;
 serialGrid.BackgroundColor = colors.surface;
-uilabel(serialGrid, 'Text', 'COM', 'FontName', fontName, 'FontSize', 10, ...
+uilabel(serialGrid, 'Text', 'COM', 'FontName', fontName, 'FontSize', 11, ...
     'FontColor', colors.muted, 'HorizontalAlignment', 'center');
 portDrop = uidropdown(serialGrid, 'Items', {'正在检测…'}, 'FontName', fontName, ...
-    'FontSize', 10, 'Value', '正在检测…');
+    'FontSize', 11, 'Value', '正在检测…');
 refreshButton = uibutton(serialGrid, 'push', 'Text', '刷新', 'FontName', fontName, ...
-    'FontSize', 10, 'ButtonPushedFcn', @refreshPorts);
+    'FontSize', 11, 'ButtonPushedFcn', @refreshPorts);
 baudDrop = uidropdown(serialGrid, 'Items', {'9600', '19200', '38400', '57600', '115200', '230400'}, ...
-    'Value', '115200', 'FontName', fontName, 'FontSize', 10);
+    'Value', '115200', 'FontName', fontName, 'FontSize', 11);
 connectButton = uibutton(serialGrid, 'push', 'Text', '连接', 'FontName', fontName, ...
-    'FontSize', 10, 'FontWeight', 'bold', 'FontColor', [1 1 1], ...
+    'FontSize', 11, 'FontWeight', 'bold', 'FontColor', [1 1 1], ...
     'BackgroundColor', colors.green, 'ButtonPushedFcn', @connectSerial);
 disconnectButton = uibutton(serialGrid, 'push', 'Text', '断开', 'FontName', fontName, ...
-    'FontSize', 10, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @disconnectSerial);
+    'FontSize', 11, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @disconnectSerial);
 clearButton = uibutton(serialGrid, 'push', 'Text', '清空曲线', 'FontName', fontName, ...
-    'FontSize', 10, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @clearRealtime);
+    'FontSize', 11, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @clearRealtime);
 
 replayPanel = uipanel(controlGrid, 'Title', '模拟实时 / Replay', 'FontName', fontName, ...
-    'FontSize', 10, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
+    'FontSize', 11, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
     'BackgroundColor', colors.surface);
 replayPanel.Layout.Column = 3;
 replayGrid = uigridlayout(replayPanel, [1 5]);
@@ -137,17 +137,17 @@ replayGrid.ColumnWidth = {42, '1.35x', 62, 58, 58};
 replayGrid.Padding = [6 2 6 4];
 replayGrid.ColumnSpacing = 5;
 replayGrid.BackgroundColor = colors.surface;
-uilabel(replayGrid, 'Text', '文件', 'FontName', fontName, 'FontSize', 10, ...
+uilabel(replayGrid, 'Text', '文件', 'FontName', fontName, 'FontSize', 11, ...
     'FontColor', colors.muted, 'HorizontalAlignment', 'center');
 replayFileButton = uibutton(replayGrid, 'push', 'Text', '选择日志', ...
-    'FontName', fontName, 'FontSize', 10, 'ButtonPushedFcn', @selectReplayFile);
+    'FontName', fontName, 'FontSize', 11, 'ButtonPushedFcn', @selectReplayFile);
 speedDrop = uidropdown(replayGrid, 'Items', {'1x', '5x', '10x'}, 'Value', '1x', ...
-    'FontName', fontName, 'FontSize', 10, 'ValueChangedFcn', @onReplaySpeedChanged);
+    'FontName', fontName, 'FontSize', 11, 'ValueChangedFcn', @onReplaySpeedChanged);
 replayStartButton = uibutton(replayGrid, 'push', 'Text', '开始', 'FontName', fontName, ...
-    'FontSize', 10, 'FontWeight', 'bold', 'FontColor', [1 1 1], ...
+    'FontSize', 11, 'FontWeight', 'bold', 'FontColor', [1 1 1], ...
     'BackgroundColor', colors.primary, 'ButtonPushedFcn', @startReplay);
 replayStopButton = uibutton(replayGrid, 'push', 'Text', '停止', 'FontName', fontName, ...
-    'FontSize', 10, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @stopReplay);
+    'FontSize', 11, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @stopReplay);
 
 headerStatusGrid = uigridlayout(headerGrid, [1 3]);
 headerStatusGrid.Layout.Row = 3;
@@ -156,15 +156,15 @@ headerStatusGrid.Padding = [0 0 0 0];
 headerStatusGrid.ColumnSpacing = 12;
 headerStatusGrid.BackgroundColor = colors.background;
 connectionLabel = uilabel(headerStatusGrid, 'Text', '未连接', 'FontName', fontName, ...
-    'FontSize', 11, 'FontColor', colors.muted, 'HorizontalAlignment', 'left');
+    'FontSize', 12, 'FontColor', colors.muted, 'HorizontalAlignment', 'left');
 fileLabel = uilabel(headerStatusGrid, 'Text', '文件：尚未载入', 'FontName', fontName, ...
-    'FontSize', 11, 'FontColor', colors.muted, 'HorizontalAlignment', 'left');
+    'FontSize', 12, 'FontColor', colors.muted, 'HorizontalAlignment', 'left');
 reportLabel = uilabel(headerStatusGrid, 'Text', '等待数据', 'FontName', fontName, ...
-    'FontSize', 11, 'FontColor', colors.muted, 'HorizontalAlignment', 'right');
+    'FontSize', 12, 'FontColor', colors.muted, 'HorizontalAlignment', 'right');
 
 content = uigridlayout(rootGrid, [2 3]);
 content.Layout.Row = 2;
-content.ColumnWidth = {286, '1x', '1x'};
+content.ColumnWidth = {330, '1x', '1x'};
 content.RowHeight = {'1x', '1.03x'};
 content.Padding = [0 0 0 0];
 content.RowSpacing = 14;
@@ -175,27 +175,25 @@ statusPanel = uipanel(content, 'BorderType', 'line', 'BorderColor', colors.borde
     'BackgroundColor', colors.surface);
 statusPanel.Layout.Row = [1 2];
 statusPanel.Layout.Column = 1;
-statusGrid = uigridlayout(statusPanel, [10 1]);
-statusGrid.RowHeight = {30, 30, 30, 30, 30, 30, 30, 30, 30, '1x'};
-statusGrid.Padding = [14 12 14 12];
-statusGrid.RowSpacing = 7;
+statusGrid = uigridlayout(statusPanel, [8 1]);
+statusGrid.RowHeight = {38, 38, 38, 38, 38, 38, 38, '1x'};
+statusGrid.Padding = [14 14 14 14];
+statusGrid.RowSpacing = 8;
 statusGrid.BackgroundColor = colors.surface;
 statusHeading = uilabel(statusGrid, 'Text', '实时状态 / 最后有效采样', ...
-    'FontName', fontName, 'FontSize', 14, 'FontWeight', 'bold', ...
+    'FontName', fontName, 'FontSize', 16, 'FontWeight', 'bold', ...
     'FontColor', colors.ink, 'HorizontalAlignment', 'left');
 statusHeading.Layout.Row = 1;
-[batteryValue, batteryUnit] = localMakeMetricRow(statusGrid, 2, 'Battery Voltage');
-[solarVoltageValue, solarVoltageUnit] = localMakeMetricRow(statusGrid, 3, 'Solar Voltage');
-[solarCurrentValue, solarCurrentUnit] = localMakeMetricRow(statusGrid, 4, 'Solar Current');
-[solarPowerValue, solarPowerUnit] = localMakeMetricRow(statusGrid, 5, 'Solar Power');
-[socValue, socUnit] = localMakeMetricRow(statusGrid, 6, 'SOC');
-[dcdcValue, dcdcUnit] = localMakeMetricRow(statusGrid, 7, 'DCDC State');
-[chgValue, chgUnit] = localMakeMetricRow(statusGrid, 8, 'Charge State');
-[errorValue, errorUnit] = localMakeMetricRow(statusGrid, 9, 'Error Flags');
+[solarVoltageValue, solarVoltageUnit] = localMakeMetricRow(statusGrid, 2, '太阳能板电压');
+[solarCurrentValue, solarCurrentUnit] = localMakeMetricRow(statusGrid, 3, '太阳能电流');
+[solarPowerValue, solarPowerUnit] = localMakeMetricRow(statusGrid, 4, '实时功率');
+[energyValue, energyUnit] = localMakeMetricRow(statusGrid, 5, '累计输出能量');
+[capacityValue, capacityUnit] = localMakeMetricRow(statusGrid, 6, '累计输出容量');
+[errorValue, errorUnit] = localMakeMetricRow(statusGrid, 7, 'Error Flag');
 statusDetail = uilabel(statusGrid, 'Text', '等待有效数据…', 'FontName', fontName, ...
-    'FontSize', 10, 'FontColor', colors.muted, 'HorizontalAlignment', 'left', ...
+    'FontSize', 11, 'FontColor', colors.muted, 'HorizontalAlignment', 'left', ...
     'VerticalAlignment', 'top', 'WordWrap', 'on');
-statusDetail.Layout.Row = 10;
+statusDetail.Layout.Row = 8;
 
 [batteryAxes, batteryTitle] = localMakeChartPanel(content, '电池电压变化', ...
     '记录时间 / s', '电池电压 / V', fontName, colors, 1, 2);
@@ -206,7 +204,7 @@ statusDetail.Layout.Row = 10;
 
 footer = uilabel(rootGrid, 'Text', ...
     '历史文件  ·  实时串口只读  ·  原始串口行保存到 realtime_logs  ·  关闭窗口会释放串口', ...
-    'FontName', fontName, 'FontSize', 10, 'FontColor', colors.muted, ...
+    'FontName', fontName, 'FontSize', 11, 'FontColor', colors.muted, ...
     'HorizontalAlignment', 'left');
 footer.Layout.Row = 3;
 
@@ -636,6 +634,9 @@ end
         end
         batteryTitle.Text = '电池电压变化';
         powerTitle.Text = '太阳能功率变化';
+        localStyleAxes(batteryAxes, '记录时间 / s', '电池电压 / V');
+        localStyleAxes(powerAxes, '记录时间 / s', '太阳能功率 / W');
+        localStyleAxes(energyAxes, '记录时间 / s', '累计太阳能输出能量 / Wh');
     end
 
     function localRenderRealtime(data)
@@ -649,6 +650,9 @@ end
         energyTitle.Text = '太阳能累计输出能量 · 实时';
         batteryTitle.Text = '电池电压变化 · 最近 500 点';
         powerTitle.Text = '太阳能功率变化 · 最近 500 点';
+        localStyleAxes(batteryAxes, '记录时间 / s', '电池电压 / V');
+        localStyleAxes(powerAxes, '记录时间 / s', '太阳能功率 / W');
+        localStyleAxes(energyAxes, '记录时间 / s', '累计太阳能输出能量 / Wh');
     end
 
     function localEnsureRealtimeLines()
@@ -715,32 +719,25 @@ end
 
     function localUpdateStatusFromData(data)
         if isempty(data) || ~isstruct(data) || ~isfield(data, 'metrics') || isempty(data.metrics)
-            batteryValue.Text = '—'; batteryUnit.Text = 'V';
             solarVoltageValue.Text = '—'; solarVoltageUnit.Text = 'V';
             solarCurrentValue.Text = '—'; solarCurrentUnit.Text = 'A';
             solarPowerValue.Text = '—'; solarPowerUnit.Text = 'W';
-            socValue.Text = '—'; socUnit.Text = '%';
-            dcdcValue.Text = '—'; dcdcUnit.Text = '';
-            chgValue.Text = '—'; chgUnit.Text = '';
+            energyValue.Text = '—'; energyUnit.Text = 'Wh';
+            capacityValue.Text = '—'; capacityUnit.Text = 'mAh';
             errorValue.Text = '—'; errorUnit.Text = '';
             statusDetail.Text = '等待有效数据…';
             statusPanel.BackgroundColor = colors.surface;
             return;
         end
         idx = data.metrics.lastIndex;
-        batteryValue.Text = localNumber(localAt(data.Bat_V, idx), '%.2f'); batteryUnit.Text = 'V';
         solarVoltageValue.Text = localNumber(localAt(data.Solar_V, idx), '%.2f'); solarVoltageUnit.Text = 'V';
         solarCurrentValue.Text = localNumber(localAt(data.Solar_A_generation, idx), '%.2f'); solarCurrentUnit.Text = 'A';
         solarPowerValue.Text = localNumber(localAt(data.SolarPower_W, idx), '%.2f'); solarPowerUnit.Text = 'W';
-        socValue.Text = localNumber(localAt(data.SOC_pct, idx), '%.1f'); socUnit.Text = '%';
-        lastChg = localAt(data.ChgState, idx);
-        lastDcdc = localAt(data.DCDCState, idx);
         lastError = localAt(data.ErrorFlags, idx);
-        stateText = mppt.formatMPPTState(lastChg, lastDcdc, lastError);
-        dcdcValue.Text = stateText.dcdcText; dcdcUnit.Text = '';
-        chgValue.Text = stateText.chgText; chgUnit.Text = '';
-        errorValue.Text = stateText.errorText; errorUnit.Text = '';
-        if stateText.hasError
+        energyValue.Text = localNumber(localAt(data.Energy_Wh, idx), '%.2f'); energyUnit.Text = 'Wh';
+        capacityValue.Text = localNumber(localAt(data.Capacity_mAh, idx), '%.2f'); capacityUnit.Text = 'mAh';
+        errorValue.Text = localNumber(lastError, '%.0f'); errorUnit.Text = '';
+        if isfinite(lastError) && lastError ~= 0
             statusPanel.BackgroundColor = [1.000 0.945 0.940];
             errorValue.FontColor = colors.red;
         else
@@ -748,7 +745,7 @@ end
             errorValue.FontColor = colors.ink;
         end
         detailParts = {['Pmax ', localNumber(data.metrics.Pmax_W, '%.2f'), ' W'], ...
-            ['能量：', data.energySource], data.solarSignRule};
+            ['Wh：', data.energySource], ['mAh：', data.capacitySource], data.solarSignRule};
         if state.validCount > 0 && ~isnat(state.lastValidDateTime)
             detailParts{end+1} = ['最近有效：', datestr(state.lastValidDateTime, 'yyyy-mm-dd HH:MM:SS')];
         end
@@ -788,23 +785,23 @@ end
 function [valueLabel, unitLabel] = localMakeMetricRow(parent, row, titleText)
 grid = uigridlayout(parent, [1 2]);
 grid.Layout.Row = row;
-grid.ColumnWidth = {'1.2x', '1.4x'};
+grid.ColumnWidth = {'1.55x', '1x'};
 grid.Padding = [0 0 0 0];
-grid.ColumnSpacing = 4;
+grid.ColumnSpacing = 6;
 grid.BackgroundColor = parent.BackgroundColor;
-uilabel(grid, 'Text', titleText, 'FontName', 'Segoe UI', 'FontSize', 10, ...
+uilabel(grid, 'Text', titleText, 'FontName', 'Segoe UI', 'FontSize', 18, ...
     'FontColor', [0.360 0.425 0.515], 'HorizontalAlignment', 'left', ...
     'VerticalAlignment', 'center');
 valueGrid = uigridlayout(grid, [1 2]);
 valueGrid.Layout.Column = 2;
-valueGrid.ColumnWidth = {'1x', 20};
+valueGrid.ColumnWidth = {'1x', 42};
 valueGrid.Padding = [0 0 0 0];
 valueGrid.ColumnSpacing = 2;
 valueGrid.BackgroundColor = parent.BackgroundColor;
 valueLabel = uilabel(valueGrid, 'Text', '—', 'FontName', 'Segoe UI', ...
-    'FontSize', 14, 'FontWeight', 'bold', 'FontColor', [0.105 0.145 0.205], ...
+    'FontSize', 20, 'FontWeight', 'bold', 'FontColor', [0.105 0.145 0.205], ...
     'HorizontalAlignment', 'right');
-unitLabel = uilabel(valueGrid, 'Text', '', 'FontName', 'Segoe UI', 'FontSize', 10, ...
+unitLabel = uilabel(valueGrid, 'Text', '', 'FontName', 'Segoe UI', 'FontSize', 17, ...
     'FontColor', [0.090 0.345 0.690], 'HorizontalAlignment', 'left');
 end
 
@@ -814,12 +811,12 @@ panel = uipanel(parent, 'BorderType', 'line', 'BorderColor', colors.border, ...
 panel.Layout.Row = row;
 panel.Layout.Column = column;
 grid = uigridlayout(panel, [2 1]);
-grid.RowHeight = {30, '1x'};
-grid.Padding = [14 10 14 12];
-grid.RowSpacing = 2;
+grid.RowHeight = {42, '1x'};
+grid.Padding = [16 12 16 18];
+grid.RowSpacing = 4;
 grid.BackgroundColor = colors.surface;
 heading = uilabel(grid, 'Text', titleText, 'FontName', fontName, ...
-    'FontSize', 14, 'FontWeight', 'bold', 'FontColor', colors.ink, ...
+    'FontSize', 19, 'FontWeight', 'bold', 'FontColor', colors.ink, ...
     'HorizontalAlignment', 'left');
 heading.Layout.Row = 1;
 ax = uiaxes(grid);
@@ -829,7 +826,7 @@ end
 
 function localStyleAxes(ax, xLabelText, yLabelText)
 ax.FontName = 'Segoe UI';
-ax.FontSize = 11;
+ax.FontSize = 14;
 ax.XColor = [0.265 0.315 0.390];
 ax.YColor = [0.265 0.315 0.390];
 ax.GridColor = [0.790 0.835 0.900];
@@ -839,8 +836,10 @@ ax.MinorGridAlpha = 0.18;
 ax.LineWidth = 0.8;
 ax.Box = 'off';
 ax.Color = [1 1 1];
-xlabel(ax, xLabelText, 'FontName', 'Segoe UI', 'Color', ax.XColor);
-ylabel(ax, yLabelText, 'FontName', 'Segoe UI', 'Color', ax.YColor);
+xlabel(ax, xLabelText, 'FontName', 'Segoe UI', 'FontSize', 16, 'Color', ax.XColor);
+ylabel(ax, yLabelText, 'FontName', 'Segoe UI', 'FontSize', 16, 'Color', ax.YColor);
+ax.XLabel.FontSize = 16;
+ax.YLabel.FontSize = 16;
 ax.XGrid = 'on';
 ax.YGrid = 'on';
 end
@@ -867,7 +866,7 @@ ax.YLim = [0 1];
 ax.XTick = [];
 ax.YTick = [];
 text(ax, 0.5, 0.5, message, 'Units', 'normalized', 'FontName', 'Segoe UI', ...
-    'FontSize', 12, 'Color', [0.360 0.425 0.515], 'HorizontalAlignment', 'center', ...
+    'FontSize', 14, 'Color', [0.360 0.425 0.515], 'HorizontalAlignment', 'center', ...
     'VerticalAlignment', 'middle');
 end
 
