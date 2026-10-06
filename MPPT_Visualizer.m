@@ -446,7 +446,7 @@ end
         state.totalCount = state.totalCount + 1;
         if isSerialLine && isnumeric(state.logFID) && state.logFID >= 0
             fprintf(state.logFID, '%s\n', rawLine);
-            fflush(state.logFID);
+            % fflush(state.logFID);
         end
         [record, isValid, info] = mppt.parseTelemetryLine(rawLine);
         if ~isValid
