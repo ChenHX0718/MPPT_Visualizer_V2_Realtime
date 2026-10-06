@@ -52,14 +52,13 @@ while true
     end
 end
 assert(validCount == 274 && invalidCount == 1, 'Replay 逐行计数失败。');
-assert(numel(buffer.records) == 10, '滚动缓存没有限制到 10 点。');
+assert(numel(buffer.records) == 274, '本次完整记录不应被显示窗口截断。');
 assert(isfinite(replayData.SolarPower_W(end)) && replayData.SolarPower_W(end) > 0, ...
     'Replay 实时功率没有正确更新。');
 
 % 数学验证：40 V、2 A 持续 3600 s 应得到 80 Wh 和 2000 mAh。
-mathRecords = { ...
-    struct('Uptime_s', 0, 'Solar_V', 40, 'Solar_A', 2), ...
-    struct('Uptime_s', 3600, 'Solar_V', 40, 'Solar_A', 2)};
+mathRecords = arrayfun(@(t) struct('Uptime_s', t, 'Solar_V', 40, 'Solar_A', 2), ...
+    (0:3600)', 'UniformOutput', false);
 mathData = mppt.processMPPTData(mathRecords, 1);
 assert(abs(mathData.SolarPower_W(end) - 80) < 1e-12, ...
     'V x I 实时功率验证失败。');
@@ -68,7 +67,7 @@ assert(abs(mathData.Energy_Wh(end) - 80) < 1e-12, ...
 assert(abs(mathData.Capacity_mAh(end) - 2000) < 1e-12, ...
     'mAh 梯形积分验证失败。');
 
-% 滚动曲线只保留最近点，但会话累计值不能因窗口滚动而归零。
+% 显示取窗独立于缓存，会话累计值不能因窗口滚动而归零。
 rollingBuffer = mppt.realtimeBuffer('create', 10);
 for k = 0:11
     rollingRecord = struct('Uptime_s', k, 'Solar_V', 40, 'Solar_A', 2);

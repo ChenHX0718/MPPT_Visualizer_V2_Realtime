@@ -27,7 +27,7 @@ state.replayFID = -1;
 state.replayFile = '';
 state.replayTimer = [];
 state.replayFactor = 1;
-state.buffer = mppt.realtimeBuffer('create', 500);
+state.buffer = mppt.realtimeBuffer('create');
 state.validCount = 0;
 state.invalidCount = 0;
 state.totalCount = 0;
@@ -35,6 +35,12 @@ state.lastValidDateTime = NaT;
 state.data = [];
 state.report = [];
 state.closing = false;
+state.displayDuration_s = 500;
+state.customDuration_s = 500;
+state.receiveClock = [];
+state.receiveFirst_s = NaN;
+state.receiveLast_s = NaN;
+state.receiveCount = 0;
 
 rootGrid = uigridlayout(fig, [3 1]);
 rootGrid.RowHeight = {132, '1x', 26};
@@ -53,7 +59,7 @@ headerGrid.BackgroundColor = colors.background;
 
 topGrid = uigridlayout(headerGrid, [1 4]);
 topGrid.Layout.Row = 1;
-topGrid.ColumnWidth = {'1x', 230, 125, 175};
+topGrid.ColumnWidth = {'1x', 350, 125, 130};
 topGrid.Padding = [0 0 0 0];
 topGrid.ColumnSpacing = 12;
 topGrid.BackgroundColor = colors.background;
@@ -63,10 +69,22 @@ titleLabel = uilabel(topGrid, 'Text', 'MPPT 数据监控 / 历史与实时', ...
     'FontColor', colors.ink, 'HorizontalAlignment', 'left');
 titleLabel.Layout.Column = 1;
 
-modeHint = uilabel(topGrid, 'Text', '工作模式', 'FontName', fontName, ...
-    'FontSize', 12, 'FontWeight', 'bold', 'FontColor', colors.muted, ...
-    'HorizontalAlignment', 'right', 'VerticalAlignment', 'center');
-modeHint.Layout.Column = 2;
+rangeGrid = uigridlayout(topGrid, [1 4]);
+rangeGrid.Layout.Column = 2;
+rangeGrid.ColumnWidth = {90, 140, 72, 18};
+rangeGrid.Padding = [0 9 0 9];
+rangeGrid.ColumnSpacing = 6;
+rangeGrid.BackgroundColor = colors.background;
+uilabel(rangeGrid, 'Text', '显示时间范围', 'FontName', fontName, 'FontSize', 12);
+rangeDrop = uidropdown(rangeGrid, ...
+    'Items', {'最近60 s', '最近300 s', '最近500 s', '最近1800 s', ...
+    '最近3600 s', '全部（本次记录）', '自定义'}, 'Value', '最近500 s', ...
+    'FontName', fontName, 'FontSize', 12, 'ValueChangedFcn', @onRangeChanged);
+% 文本输入允许统一检查空值、NaN、Inf及非法字符，错误时恢复上次设置。
+customRange = uieditfield(rangeGrid, 'text', 'Value', '500', ...
+    'FontName', fontName, 'FontSize', 12, 'Enable', 'off', ...
+    'Tooltip', '有限正数，单位 s', 'ValueChangedFcn', @onCustomRangeChanged);
+uilabel(rangeGrid, 'Text', 's', 'FontName', fontName, 'FontSize', 12);
 
 modeDrop = uidropdown(topGrid, 'Items', {'历史文件', '实时串口', '模拟实时'}, ...
     'Value', '历史文件', 'FontName', fontName, 'FontSize', 12, ...
@@ -122,11 +140,12 @@ baudDrop = uidropdown(serialGrid, 'Items', {'9600', '19200', '38400', '57600', '
     'Value', '115200', 'FontName', fontName, 'FontSize', 11);
 connectButton = uibutton(serialGrid, 'push', 'Text', '连接', 'FontName', fontName, ...
     'FontSize', 11, 'FontWeight', 'bold', 'FontColor', [1 1 1], ...
-    'BackgroundColor', colors.green, 'ButtonPushedFcn', @connectSerial);
+    'BackgroundColor', colors.green, 'ButtonPushedFcn', @connectSerial, 'Tooltip', '连接并开始新记录，清空本次曲线与累计值');
 disconnectButton = uibutton(serialGrid, 'push', 'Text', '断开', 'FontName', fontName, ...
     'FontSize', 11, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @disconnectSerial);
 clearButton = uibutton(serialGrid, 'push', 'Text', '清空曲线', 'FontName', fontName, ...
-    'FontSize', 11, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @clearRealtime);
+    'FontSize', 11, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @clearRealtime, ...
+    'Tooltip', '清空本次曲线和累计值，下一条有效Uptime_s开始新记录；原始日志继续保存');
 
 replayPanel = uipanel(controlGrid, 'Title', '模拟实时 / Replay', 'FontName', fontName, ...
     'FontSize', 11, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
@@ -237,11 +256,12 @@ end
         localStopReplay();
         localDisconnect();
         state.mode = newMode;
-        state.buffer = mppt.realtimeBuffer('create', 500);
+        state.buffer = mppt.realtimeBuffer('create');
         state.validCount = 0;
         state.invalidCount = 0;
         state.totalCount = 0;
         state.lastValidDateTime = NaT;
+        state.data = [];
         modeLabel.Text = [newMode, '模式'];
         localUpdateControlVisibility();
         if strcmp(newMode, '历史文件')
@@ -255,6 +275,7 @@ end
             localClearAxes();
             localUpdateStatusFromData([]);
             reportLabel.Text = '等待实时数据';
+            localRefreshRange();
         end
     end
 
@@ -403,7 +424,7 @@ end
             catch
             end
             try
-                flush(state.serial);
+                delete(state.serial); % 显式释放，即使外部仍持有该句柄。
             catch
             end
             state.serial = [];
@@ -443,6 +464,9 @@ end
     end
 
     function localConsumeLine(rawLine, isSerialLine)
+        if isSerialLine
+            received_s = toc(state.receiveClock);
+        end
         state.totalCount = state.totalCount + 1;
         if isSerialLine && isnumeric(state.logFID) && state.logFID >= 0
             fprintf(state.logFID, '%s\n', rawLine);
@@ -461,6 +485,14 @@ end
             return;
         end
         [state.buffer, data] = mppt.realtimeBuffer('append', state.buffer, record);
+        state.data = data;
+        if isSerialLine
+            if state.receiveCount == 0
+                state.receiveFirst_s = received_s;
+            end
+            state.receiveLast_s = received_s;
+            state.receiveCount = state.receiveCount + 1;
+        end
         state.validCount = state.validCount + 1;
         state.lastValidDateTime = datetime('now');
         localRenderRealtime(data);
@@ -477,19 +509,64 @@ end
         drawnow limitrate;
     end
 
+    function onRangeChanged(~, ~)
+        choice = rangeDrop.Value;
+        customRange.Enable = strcmp(choice, '自定义');
+        if strcmp(choice, '全部（本次记录）')
+            state.displayDuration_s = Inf;
+        elseif strcmp(choice, '自定义')
+            state.displayDuration_s = state.customDuration_s;
+        else
+            state.displayDuration_s = sscanf(choice, '最近%f s');
+        end
+        localRefreshRange();
+    end
+
+    function onCustomRangeChanged(~, ~)
+        value = str2double(strtrim(customRange.Value));
+        if ~isreal(value) || ~isscalar(value) || ~isfinite(value) || value <= 0
+            customRange.Value = sprintf('%g', state.customDuration_s);
+            uialert(fig, '请输入有限正数（单位 s）。已保留上一次有效设置，接收继续。', ...
+                '显示时间范围无效', 'Icon', 'warning');
+            return;
+        end
+        state.customDuration_s = value;
+        state.displayDuration_s = value;
+        localRefreshRange();
+    end
+
+    function localRefreshRange()
+        if strcmp(state.mode, '历史文件')
+            return;
+        end
+        [~, ~, label] = mppt.timeWindow([], state.displayDuration_s);
+        batteryTitle.Text = ['电池电压变化 · ', label];
+        powerTitle.Text = ['太阳能功率变化 · ', label];
+        if ~isempty(state.data)
+            localRenderRealtime(state.data);
+        end
+        drawnow limitrate;
+    end
+
     function clearRealtime(~, ~)
         localResetRealtime();
     end
 
     function localResetRealtime()
-        state.buffer = mppt.realtimeBuffer('create', 500);
+        state.buffer = mppt.realtimeBuffer('create');
         state.validCount = 0;
         state.invalidCount = 0;
         state.totalCount = 0;
         state.lastValidDateTime = NaT;
+        state.data = [];
+        state.receiveClock = tic;
+        state.receiveFirst_s = NaN;
+        state.receiveLast_s = NaN;
+        state.receiveCount = 0;
         localClearAxes();
         localUpdateStatusFromData([]);
         reportLabel.Text = '实时曲线已清空';
+        localRefreshRange();
     end
 
     function selectReplayFile(~, ~)
@@ -603,13 +680,15 @@ end
         localClearAxes();
         valid = isfinite(data.Time_s) & isfinite(data.Bat_V);
         if any(valid)
-            localPlotAndFit(batteryAxes, data.Time_s(valid), data.Bat_V(valid), colors.blue);
+            [x, y] = mppt.plotSeries(data.Time_s, data.Bat_V, data.breakBefore);
+            localPlotAndFit(batteryAxes, x, y, colors.blue);
         else
             localEmptyAxes(batteryAxes, '此文件无 Bat_V 数据');
         end
         valid = isfinite(data.Time_s) & isfinite(data.SolarPower_W);
         if any(valid)
-            localPlotAndFit(powerAxes, data.Time_s(valid), data.SolarPower_W(valid), colors.orange);
+            [x, y] = mppt.plotSeries(data.Time_s, data.SolarPower_W, data.breakBefore);
+            localPlotAndFit(powerAxes, x, y, colors.orange);
             if isfinite(data.metrics.indexAtPmax)
                 idx = data.metrics.indexAtPmax;
                 hold(powerAxes, 'on');
@@ -623,7 +702,8 @@ end
         end
         valid = isfinite(data.Time_s) & isfinite(data.Energy_Wh);
         if any(valid)
-            localPlotAndFit(energyAxes, data.Time_s(valid), data.Energy_Wh(valid), colors.green);
+            [x, y] = mppt.plotSeries(data.Time_s, data.Energy_Wh, data.breakBefore);
+            localPlotAndFit(energyAxes, x, y, colors.green);
         else
             localEmptyAxes(energyAxes, '此文件无可用能量数据');
         end
@@ -641,15 +721,21 @@ end
 
     function localRenderRealtime(data)
         localEnsureRealtimeLines();
-        localSetLine(lineHandles.battery, data.Time_s, data.Bat_V);
-        localSetLine(lineHandles.power, data.Time_s, data.SolarPower_W);
-        localSetLine(lineHandles.energy, data.Time_s, data.Energy_Wh);
-        localRealtimeLimits(batteryAxes, data.Time_s, data.Bat_V);
-        localRealtimeLimits(powerAxes, data.Time_s, data.SolarPower_W);
-        localRealtimeLimits(energyAxes, data.Time_s, data.Energy_Wh);
-        energyTitle.Text = '太阳能累计输出能量 · 实时';
-        batteryTitle.Text = '电池电压变化 · 最近 500 点';
-        powerTitle.Text = '太阳能功率变化 · 最近 500 点';
+        [index, limits, label] = mppt.timeWindow(data.Time_s, state.displayDuration_s);
+        [x, y] = mppt.plotSeries(data.Time_s, data.Bat_V, data.breakBefore, index);
+        localSetLine(lineHandles.battery, x, y);
+        localRealtimeLimits(batteryAxes, x, y);
+        [x, y] = mppt.plotSeries(data.Time_s, data.SolarPower_W, data.breakBefore, index);
+        localSetLine(lineHandles.power, x, y);
+        localRealtimeLimits(powerAxes, x, y);
+        batteryAxes.XLim = limits;
+        powerAxes.XLim = limits;
+        [x, y] = mppt.plotSeries(data.Time_s, data.Energy_Wh, data.breakBefore);
+        localSetLine(lineHandles.energy, x, y);
+        localRealtimeLimits(energyAxes, x, y);
+        energyTitle.Text = '太阳能累计输出能量 · 本次记录';
+        batteryTitle.Text = ['电池电压变化 · ', label];
+        powerTitle.Text = ['太阳能功率变化 · ', label];
         localStyleAxes(batteryAxes, '记录时间 / s', '电池电压 / V');
         localStyleAxes(powerAxes, '记录时间 / s', '太阳能功率 / W');
         localStyleAxes(energyAxes, '记录时间 / s', '累计太阳能输出能量 / Wh');
@@ -672,9 +758,14 @@ end
 
     function localSetLine(lineHandle, x, y)
         valid = isfinite(x) & isfinite(y);
+        lineHandle.Marker = 'none';
+        if nnz(valid) == 1
+            lineHandle.Marker = '.';
+            lineHandle.MarkerSize = 12;
+        end
         if any(valid)
-            lineHandle.XData = x(valid);
-            lineHandle.YData = y(valid);
+            lineHandle.XData = x;
+            lineHandle.YData = y;
         else
             lineHandle.XData = NaN;
             lineHandle.YData = NaN;
@@ -749,11 +840,30 @@ end
         if state.validCount > 0 && ~isnat(state.lastValidDateTime)
             detailParts{end+1} = ['最近有效：', datestr(state.lastValidDateTime, 'yyyy-mm-dd HH:MM:SS')];
         end
+        detailParts{end+1} = '时间依据：板端Uptime_s（缺失时间不推算）';
+        clock = data.clock;
+        if clock.invalidated
+            detailParts{end+1} = '时间倒退：复位/乱序未确认。原始行继续保存；请清空曲线开始新记录。';
+        end
+        if clock.missingCount > 0 || clock.gapCount > 0
+            detailParts{end+1} = sprintf('未知时间 %d 条；>10 s 缺口 %d 处。累计值不覆盖未知区间。', ...
+                clock.missingCount, clock.gapCount);
+        end
+        if strcmp(state.mode, '实时串口') && state.receiveCount > 1 && ...
+                state.receiveLast_s > state.receiveFirst_s
+            detailParts{end+1} = sprintf('有效接收约 %.2f Hz（电脑回调接收时刻）', ...
+                (state.receiveCount-1)/(state.receiveLast_s-state.receiveFirst_s));
+        end
         statusDetail.Text = strjoin(detailParts, newline);
     end
 
     function localUpdateControlVisibility()
         currentMode = modeDrop.Value;
+        historyPanel.Layout.Column = [1 3];
+        serialPanel.Layout.Column = [1 3];
+        replayPanel.Layout.Column = [1 3];
+        rangeDrop.Enable = ~strcmp(currentMode, '历史文件');
+        customRange.Enable = ~strcmp(currentMode, '历史文件') && strcmp(rangeDrop.Value, '自定义');
         historyPanel.Visible = strcmp(currentMode, '历史文件');
         serialPanel.Visible = strcmp(currentMode, '实时串口');
         replayPanel.Visible = strcmp(currentMode, '模拟实时');
@@ -819,6 +929,12 @@ heading = uilabel(grid, 'Text', titleText, 'FontName', fontName, ...
     'FontSize', 19, 'FontWeight', 'bold', 'FontColor', colors.ink, ...
     'HorizontalAlignment', 'left');
 heading.Layout.Row = 1;
+if row == 2
+    heading.HorizontalAlignment = 'center';
+    grid.RowHeight = {32, '1x'};
+    grid.RowSpacing = 10;
+    grid.Padding = [20 12 20 14];
+end
 ax = uiaxes(grid);
 ax.Layout.Row = 2;
 localStyleAxes(ax, xLabelText, yLabelText);
@@ -840,12 +956,22 @@ xlabel(ax, xLabelText, 'FontName', 'Segoe UI', 'FontSize', 16, 'Color', ax.XColo
 ylabel(ax, yLabelText, 'FontName', 'Segoe UI', 'FontSize', 16, 'Color', ax.YColor);
 ax.XLabel.FontSize = 16;
 ax.YLabel.FontSize = 16;
+if contains(yLabelText, '累计太阳能')
+    % 两行物理量标签仍保留16号字和Wh单位，避免短窗时纵向越过标题行。
+    ax.YLabel.String = {'累计太阳能输出', '能量 / Wh'};
+end
 ax.XGrid = 'on';
 ax.YGrid = 'on';
 end
 
 function localPlotAndFit(ax, x, y, color)
-plot(ax, x, y, '-', 'Color', color, 'LineWidth', 1.8);
+lineHandle = plot(ax, x, y, '-', 'Color', color, 'LineWidth', 1.8);
+valid = isfinite(x) & isfinite(y);
+x = x(valid); y = y(valid);
+if numel(x) == 1
+    lineHandle.Marker = '.';
+    lineHandle.MarkerSize = 12;
+end
 if min(x) == max(x)
     dx = max(1, abs(x(1)) * 0.05);
 else

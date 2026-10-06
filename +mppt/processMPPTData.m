@@ -33,14 +33,16 @@ for k = 1:numel(explicitNames)
     end
 end
 
-validTime = find(isfinite(data.Uptime_s));
-if isempty(validTime)
-    data.Time_s = (0:n-1)';
-    data.timeIsFallback = true;
-else
-    data.Time_s = data.Uptime_s - data.Uptime_s(validTime(1));
-    data.timeIsFallback = false;
+clock = mppt.recordTime();
+data.Time_s = NaN(n, 1);
+data.breakBefore = true(n, 1);
+data.timeStatus = cell(n, 1);
+for k = 1:n
+    [clock, data.Time_s(k), data.breakBefore(k), data.timeStatus{k}] = ...
+        mppt.recordTime(clock, data.Uptime_s(k));
 end
+data.clock = clock;
+data.timeIsFallback = false; % 缺失时间明确为 NaN，不用点号冒充秒数。
 
 validSolar = isfinite(data.Solar_V) & isfinite(data.Solar_A_raw) & data.Solar_V >= 0;
 if nargin >= 2 && isnumeric(signFactorOverride) && isscalar(signFactorOverride) && ...
@@ -83,14 +85,14 @@ data.SolarPower_W = data.Solar_V .* data.Solar_A_generation;
 powerForIntegration = data.SolarPower_W;
 powerForIntegration(~isfinite(powerForIntegration)) = 0;
 powerForIntegration = max(powerForIntegration, 0);
-data.Energy_Wh = localCumulativeIntegral(data.Time_s, powerForIntegration) ./ 3600;
+data.Energy_Wh = localCumulativeIntegral(data.Time_s, powerForIntegration, data.breakBefore) ./ 3600;
 data.energyIsComputed = true;
 data.energySource = '由 SolarPower_W 梯形积分计算';
 
 currentForIntegration = data.Solar_A_generation;
 currentForIntegration(~isfinite(currentForIntegration)) = 0;
 currentForIntegration = max(currentForIntegration, 0);
-data.Capacity_mAh = localCumulativeIntegral(data.Time_s, currentForIntegration) .* 1000 ./ 3600;
+data.Capacity_mAh = localCumulativeIntegral(data.Time_s, currentForIntegration, data.breakBefore) .* 1000 ./ 3600;
 data.capacityIsComputed = true;
 data.capacitySource = '由 Solar_A_generation 梯形积分计算';
 
@@ -98,31 +100,15 @@ data.report = localReport(records, data);
 data.metrics = mppt.calculateMetrics(data);
 end
 
-function cumulative = localCumulativeIntegral(time_s, values)
-%LOCALCUMULATIVEINTEGRAL 以实际时间间隔执行非负梯形积分。
+function cumulative = localCumulativeIntegral(time_s, values, breakBefore)
+% 只对相邻可靠时间积分；未知时间、大缺口和失效时钟均不跨越。
 cumulative = zeros(size(values));
-if isempty(values)
-    return;
-end
-
-lastValid = 0;
-for k = 1:numel(values)
-    if ~isfinite(time_s(k)) || ~isfinite(values(k))
-        if lastValid > 0
-            cumulative(k) = cumulative(lastValid);
-        end
-        continue;
+for k = 2:numel(values)
+    cumulative(k) = cumulative(k-1);
+    dt = time_s(k) - time_s(k-1);
+    if ~breakBefore(k) && isfinite(dt) && dt > 0
+        cumulative(k) = cumulative(k-1) + 0.5 .* (values(k)+values(k-1)) .* dt;
     end
-    if lastValid > 0
-        dt = time_s(k) - time_s(lastValid);
-        if isfinite(dt) && dt > 0
-            cumulative(k) = cumulative(lastValid) + ...
-                0.5 .* (values(k) + values(lastValid)) .* dt;
-        else
-            cumulative(k) = cumulative(lastValid);
-        end
-    end
-    lastValid = k;
 end
 end
 

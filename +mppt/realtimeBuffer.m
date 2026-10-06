@@ -1,16 +1,15 @@
 function varargout = realtimeBuffer(action, varargin)
-%REALTIMEBUFFER 固定长度 MPPT 实时记录缓存。
+%REALTIMEBUFFER 本次完整记录缓存；显示窗口由 timeWindow 独立控制。
 %   buffer = mppt.realtimeBuffer('create', maxPoints)
 %   [buffer, data] = mppt.realtimeBuffer('append', buffer, record)
 %   data = mppt.realtimeBuffer('data', buffer)
 
 switch lower(char(action))
     case 'create'
-        maxPoints = 500;
-        if ~isempty(varargin) && isnumeric(varargin{1}) && isscalar(varargin{1})
-            maxPoints = max(10, round(varargin{1}));
-        end
+        maxPoints = Inf; % 兼容旧 create(maxPoints) 调用，但不再截断记录。
         buffer = struct('maxPoints', maxPoints, 'records', {cell(0, 1)}, ...
+            'clock', mppt.recordTime(), 'sessionStartUptime_s', NaN, ...
+            'sessionBreakBefore', false(0, 1), 'sessionTimeStatus', {cell(0, 1)}, ...
             'acceptedCount', 0, 'signFactor', NaN, 'signFactorLocked', false, ...
             'sessionTime_s', zeros(0, 1), 'sessionSolarV', zeros(0, 1), ...
             'sessionSolarA_raw', zeros(0, 1), ...
@@ -22,14 +21,15 @@ switch lower(char(action))
         buffer = varargin{1};
         record = varargin{2};
         buffer.records{end+1, 1} = record;
-        if numel(buffer.records) > buffer.maxPoints
-            buffer.records = buffer.records(end-buffer.maxPoints+1:end);
-        end
         buffer.acceptedCount = buffer.acceptedCount + 1;
 
-        % records 只保留最近 maxPoints 点供曲线显示；下面的会话序列保留
-        % 累计积分所需的轻量数值，避免滚动窗口让累计值重新从 0 开始。
-        buffer.sessionTime_s(end+1, 1) = localSessionTime(record, buffer.sessionTime_s);
+        % 时钟只随有效记录前进，窗口切换不调用 append/clear。
+        [buffer.clock, time_s, breakBefore, timeStatus] = ...
+            mppt.recordTime(buffer.clock, localRecordNumeric(record, 'Uptime_s'));
+        buffer.sessionStartUptime_s = buffer.clock.sessionStartUptime_s;
+        buffer.sessionTime_s(end+1, 1) = time_s;
+        buffer.sessionBreakBefore(end+1, 1) = breakBefore;
+        buffer.sessionTimeStatus{end+1, 1} = timeStatus;
         buffer.sessionSolarV(end+1, 1) = localRecordNumeric(record, 'Solar_V');
         buffer.sessionSolarA_raw(end+1, 1) = localRecordNumeric(record, 'Solar_A');
 
@@ -55,7 +55,7 @@ switch lower(char(action))
         if buffer.signFactorLocked && ~wasLocked
             [buffer.sessionEnergy_Wh, buffer.sessionCapacity_mAh] = ...
                 localIntegrateSession(buffer.sessionTime_s, buffer.sessionSolarV, ...
-                buffer.sessionSolarA_raw, buffer.signFactor);
+                buffer.sessionSolarA_raw, buffer.signFactor, buffer.sessionBreakBefore);
         elseif buffer.signFactorLocked
             previousIndex = numel(buffer.sessionTime_s) - 1;
             currentIndex = previousIndex + 1;
@@ -66,7 +66,7 @@ switch lower(char(action))
             dt = buffer.sessionTime_s(currentIndex) - buffer.sessionTime_s(previousIndex);
             previousEnergy = buffer.sessionEnergy_Wh(previousIndex);
             previousCapacity = buffer.sessionCapacity_mAh(previousIndex);
-            if isfinite(dt) && dt > 0
+            if ~buffer.sessionBreakBefore(currentIndex) && isfinite(dt) && dt > 0
                 buffer.sessionEnergy_Wh(end+1, 1) = previousEnergy + ...
                     0.5 * (powerPrevious + powerCurrent) * dt / 3600;
                 buffer.sessionCapacity_mAh(end+1, 1) = previousCapacity + ...
@@ -79,12 +79,13 @@ switch lower(char(action))
             signFactor = localInferSignFactor(buffer.sessionSolarV, buffer.sessionSolarA_raw);
             [buffer.sessionEnergy_Wh, buffer.sessionCapacity_mAh] = ...
                 localIntegrateSession(buffer.sessionTime_s, buffer.sessionSolarV, ...
-                buffer.sessionSolarA_raw, signFactor);
+                buffer.sessionSolarA_raw, signFactor, buffer.sessionBreakBefore);
         end
-        data = mppt.processMPPTData(buffer.records, buffer.signFactor);
-        data = localOverlaySessionTotals(data, buffer);
         varargout{1} = buffer;
-        varargout{2} = data;
+        if nargout > 1
+            data = mppt.processMPPTData(buffer.records, buffer.signFactor);
+            varargout{2} = localOverlaySessionTotals(data, buffer);
+        end
 
     case 'data'
         buffer = varargin{1};
@@ -97,18 +98,6 @@ switch lower(char(action))
 
     otherwise
         error('MPPT:RealtimeBufferAction', '未知实时缓存操作：%s', action);
-end
-end
-
-function timeValue = localSessionTime(record, previousTime)
-timeValue = localRecordNumeric(record, 'Uptime_s');
-if isfinite(timeValue)
-    return;
-end
-if isempty(previousTime)
-    timeValue = 0;
-else
-    timeValue = previousTime(end) + 1;
 end
 end
 
@@ -144,7 +133,7 @@ else
 end
 end
 
-function [energy, capacity] = localIntegrateSession(time_s, solarV, solarA_raw, signFactor)
+function [energy, capacity] = localIntegrateSession(time_s, solarV, solarA_raw, signFactor, breakBefore)
 n = numel(time_s);
 energy = zeros(n, 1);
 capacity = zeros(n, 1);
@@ -157,7 +146,7 @@ for k = 2:n
     [powerCurrent, currentCurrent] = localGenerationValues( ...
         solarV(k), solarA_raw(k), signFactor);
     dt = time_s(k) - time_s(k-1);
-    if isfinite(dt) && dt > 0
+    if ~breakBefore(k) && isfinite(dt) && dt > 0
         energy(k) = energy(k-1) + ...
             0.5 * (powerPrevious + powerCurrent) * dt / 3600;
         capacity(k) = capacity(k-1) + ...
@@ -186,7 +175,11 @@ function data = localOverlaySessionTotals(data, buffer)
 if isempty(buffer.records) || isempty(buffer.sessionEnergy_Wh)
     return;
 end
-startIndex = numel(buffer.sessionEnergy_Wh) - numel(buffer.records) + 1;
+data.Time_s = buffer.sessionTime_s;
+data.breakBefore = buffer.sessionBreakBefore;
+data.timeStatus = buffer.sessionTimeStatus;
+data.clock = buffer.clock;
+startIndex = 1;
 data.Energy_Wh = buffer.sessionEnergy_Wh(startIndex:end);
 data.Capacity_mAh = buffer.sessionCapacity_mAh(startIndex:end);
 data.energyIsComputed = true;
