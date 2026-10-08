@@ -10,7 +10,7 @@ switch lower(char(action))
         buffer = struct('maxPoints', maxPoints, 'records', {cell(0, 1)}, ...
             'clock', mppt.recordTime(), 'sessionStartUptime_s', NaN, ...
             'sessionBreakBefore', false(0, 1), 'sessionTimeStatus', {cell(0, 1)}, ...
-            'acceptedCount', 0, 'signFactor', NaN, 'signFactorLocked', false, ...
+            'liveTimeOffset_s', 0, 'acceptedCount', 0, 'signFactor', NaN, 'signFactorLocked', false, ...
             'sessionTime_s', zeros(0, 1), 'sessionSolarV', zeros(0, 1), ...
             'sessionSolarA_raw', zeros(0, 1), ...
             'sessionEnergy_Wh', zeros(0, 1), ...
@@ -24,9 +24,27 @@ switch lower(char(action))
         buffer.acceptedCount = buffer.acceptedCount + 1;
 
         % 时钟只随有效记录前进，窗口切换不调用 append/clear。
+        meta = [];
+        if numel(varargin) >= 3, meta = varargin{3}; end
+        segment = ~isempty(meta) && (meta.restart || meta.uptimeWrap);
+        if segment
+            previous = buffer.sessionTime_s(isfinite(buffer.sessionTime_s));
+            if ~isempty(previous), buffer.liveTimeOffset_s = previous(end); end
+            if meta.uptimeWrap
+                buffer.liveTimeOffset_s = buffer.liveTimeOffset_s + ...
+                    mod(localRecordNumeric(record,'Uptime_s')-buffer.clock.lastUptime_s,2^32);
+            end
+            buffer.clock = mppt.recordTime();
+        end
         [buffer.clock, time_s, breakBefore, timeStatus] = ...
             mppt.recordTime(buffer.clock, localRecordNumeric(record, 'Uptime_s'));
-        buffer.sessionStartUptime_s = buffer.clock.sessionStartUptime_s;
+        time_s = time_s + buffer.liveTimeOffset_s;
+        if segment
+            breakBefore = true; timeStatus = '验证的启动时钟新段（不跨段积分）';
+        end
+        if ~isfinite(buffer.sessionStartUptime_s)
+            buffer.sessionStartUptime_s = buffer.clock.sessionStartUptime_s;
+        end
         buffer.sessionTime_s(end+1, 1) = time_s;
         buffer.sessionBreakBefore(end+1, 1) = breakBefore;
         buffer.sessionTimeStatus{end+1, 1} = timeStatus;
@@ -179,6 +197,7 @@ data.Time_s = buffer.sessionTime_s;
 data.breakBefore = buffer.sessionBreakBefore;
 data.timeStatus = buffer.sessionTimeStatus;
 data.clock = buffer.clock;
+data.metrics.lastIndex = numel(buffer.records); % Latest measurement, even when Uptime_s is absent.
 startIndex = 1;
 data.Energy_Wh = buffer.sessionEnergy_Wh(startIndex:end);
 data.Capacity_mAh = buffer.sessionCapacity_mAh(startIndex:end);

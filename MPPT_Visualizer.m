@@ -1,6 +1,6 @@
 function app = MPPT_Visualizer()
-%MPPT_VISUALIZER MPPT 历史 / 实时串口 / Replay 共用可视化仪表盘。
-%   运行 MPPT_Visualizer 后，可在顶部选择三种模式：
+%MPPT_VISUALIZER MPPT 历史 / 实时串口 / UDP / Replay 共用可视化仪表盘。
+%   运行 MPPT_Visualizer 后，可在顶部选择四种模式：
 %   历史文件、实时串口、模拟实时。实时串口只读取，不向设备发送命令。
 
 projectRoot = fileparts(mfilename('fullpath'));
@@ -19,6 +19,11 @@ state = struct();
 state.mode = '历史文件';
 state.lastFile = '';
 state.serial = [];
+state.udp = [];
+state.receiveTimer = [];
+state.pollBusy = false;
+state.receiver = mppt.TelemetryReceiver();
+state.connectionText = "";
 state.serialPort = '';
 state.serialBaud = 115200;
 state.logFID = -1;
@@ -86,7 +91,7 @@ customRange = uieditfield(rangeGrid, 'text', 'Value', '500', ...
     'Tooltip', '有限正数，单位 s', 'ValueChangedFcn', @onCustomRangeChanged);
 uilabel(rangeGrid, 'Text', 's', 'FontName', fontName, 'FontSize', 12);
 
-modeDrop = uidropdown(topGrid, 'Items', {'历史文件', '实时串口', '模拟实时'}, ...
+modeDrop = uidropdown(topGrid, 'Items', {'历史文件', '实时串口', '实时UDP', '模拟实时'}, ...
     'Value', '历史文件', 'FontName', fontName, 'FontSize', 12, ...
     'ValueChangedFcn', @onModeChanged);
 modeDrop.Layout.Column = 3;
@@ -125,8 +130,8 @@ serialPanel = uipanel(controlGrid, 'Title', '实时串口（只读）', 'FontNam
     'FontSize', 11, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
     'BackgroundColor', colors.surface);
 serialPanel.Layout.Column = 2;
-serialGrid = uigridlayout(serialPanel, [1 7]);
-serialGrid.ColumnWidth = {42, '1.15x', 58, 78, 58, 58, 70};
+serialGrid = uigridlayout(serialPanel, [1 11]);
+serialGrid.ColumnWidth = {42, '1.15x', 58, 78, 58, 58, 70, 40, 52, 48, 52};
 serialGrid.Padding = [6 2 6 4];
 serialGrid.ColumnSpacing = 5;
 serialGrid.BackgroundColor = colors.surface;
@@ -146,6 +151,34 @@ disconnectButton = uibutton(serialGrid, 'push', 'Text', '断开', 'FontName', fo
 clearButton = uibutton(serialGrid, 'push', 'Text', '清空曲线', 'FontName', fontName, ...
     'FontSize', 11, 'BackgroundColor', colors.surfaceAlt, 'ButtonPushedFcn', @clearRealtime, ...
     'Tooltip', '清空本次曲线和累计值，下一条有效Uptime_s开始新记录；原始日志继续保存');
+
+uilabel(serialGrid, 'Text', 'Sys', 'FontName', fontName, 'FontSize', 11);
+sysField = uieditfield(serialGrid, 'numeric', 'Value', 0, 'Limits', [0 255], ...
+    'RoundFractionalValues', 'on', 'Tooltip', 'MAVLink源System ID，0=自动');
+uilabel(serialGrid, 'Text', 'Comp', 'FontName', fontName, 'FontSize', 11);
+compField = uieditfield(serialGrid, 'numeric', 'Value', 0, 'Limits', [0 255], ...
+    'RoundFractionalValues', 'on', 'Tooltip', 'MAVLink源Component ID，0=自动');
+
+udpPanel = uipanel(controlGrid, 'Title', 'R30 UDP（只读，协议自动识别）', ...
+    'FontName', fontName, 'FontSize', 11, 'BorderColor', colors.border, ...
+    'BackgroundColor', colors.surface);
+udpGrid = uigridlayout(udpPanel, [1 10]);
+udpGrid.ColumnWidth = {100, 100, 80, 80, 90, 45, 65, 50, 65, '1x'};
+udpGrid.Padding = [6 2 6 4]; udpGrid.ColumnSpacing = 5;
+udpGrid.BackgroundColor = colors.surface;
+uilabel(udpGrid, 'Text', '本机监听端口', 'FontName', fontName);
+udpPortField = uieditfield(udpGrid, 'numeric', 'Value', 14552, 'ValueDisplayFormat', '%.0f', ...
+    'Limits', [1 65535], 'RoundFractionalValues', 'on', ...
+    'Tooltip', '绑定0.0.0.0；需与R30发往本机的目标端口匹配');
+uibutton(udpGrid, 'Text', '监听', 'FontName', fontName, 'ButtonPushedFcn', @connectUDP);
+uibutton(udpGrid, 'Text', '断开', 'FontName', fontName, 'ButtonPushedFcn', @disconnectSerial);
+uibutton(udpGrid, 'Text', '清空曲线', 'FontName', fontName, 'ButtonPushedFcn', @clearRealtime);
+uilabel(udpGrid, 'Text', 'Sys', 'FontName', fontName);
+udpSysField = uieditfield(udpGrid, 'numeric', 'Value', 0, 'Limits', [0 255], ...
+    'RoundFractionalValues', 'on', 'Tooltip', '0=自动识别来源');
+uilabel(udpGrid, 'Text', 'Comp', 'FontName', fontName);
+udpCompField = uieditfield(udpGrid, 'numeric', 'Value', 0, 'Limits', [0 255], ...
+    'RoundFractionalValues', 'on', 'Tooltip', '0=自动识别来源');
 
 replayPanel = uipanel(controlGrid, 'Title', '模拟实时 / Replay', 'FontName', fontName, ...
     'FontSize', 11, 'ForegroundColor', colors.muted, 'BorderColor', colors.border, ...
@@ -221,11 +254,18 @@ statusDetail.Layout.Row = 8;
 [energyAxes, energyTitle] = localMakeChartPanel(content, '太阳能累计输出能量', ...
     '记录时间 / s', '累计太阳能输出能量 / Wh', fontName, colors, 2, [2 3]);
 
-footer = uilabel(rootGrid, 'Text', ...
-    '历史文件  ·  实时串口只读  ·  原始串口行保存到 realtime_logs  ·  关闭窗口会释放串口', ...
+footerGrid = uigridlayout(rootGrid, [1 2]);
+footerGrid.Layout.Row = 3; footerGrid.ColumnWidth = {'1x',100};
+footerGrid.Padding = [0 0 0 0];
+exportButton = uibutton(footerGrid, 'Text', '导出 CSV', 'FontName', fontName, ...
+    'ButtonPushedFcn', @exportCurrentCSV);
+exportButton.Layout.Column = 2;
+footer = uilabel(footerGrid, 'Text', ...
+    '历史文件 / Replay  ·  串口 / UDP只读，协议自动识别  ·  完整遥测行保存到 realtime_logs', ...
     'FontName', fontName, 'FontSize', 11, 'FontColor', colors.muted, ...
     'HorizontalAlignment', 'left');
-footer.Layout.Row = 3;
+footer.Layout.Row = 1; footer.Layout.Column = 1;
+footerGrid.RowHeight = {26};
 
 lineHandles = struct('battery', [], 'power', [], 'energy', []);
 localRefreshPorts();
@@ -361,56 +401,68 @@ end
 
     function connectSerial(~, ~)
         if ~strcmp(state.mode, '实时串口')
-            modeDrop.Value = '实时串口';
-            onModeChanged(modeDrop, []);
+            modeDrop.Value = '实时串口'; onModeChanged(modeDrop, []);
         end
         portName = char(portDrop.Value);
         if isempty(portName) || startsWith(portName, '(')
-            localShowError('没有可用 COM 口', '请点击“刷新”确认 MPPT USB 串口是否已经出现。');
-            return;
+            localShowError('没有可用 COM 口', '请点击“刷新”确认 MPPT USB 串口。'); return;
         end
-        baud = str2double(baudDrop.Value);
-        localDisconnect();
-        localResetRealtime();
+        localDisconnect(); localResetRealtime();
         try
-            candidate = serialport(portName, baud, 'Timeout', 1);
-            configureTerminator(candidate, 'LF');
-            flush(candidate);
-            state.serial = candidate;
-            state.serialPort = portName;
-            state.serialBaud = baud;
-            logDir = fullfile(projectRoot, 'realtime_logs');
-            if ~isfolder(logDir)
-                mkdir(logDir);
-            end
-            logName = ['MPPT_', datestr(now, 'yyyymmdd_HHMMSS'), '.log'];
-            state.logPath = fullfile(logDir, logName);
-            state.logFID = fopen(state.logPath, 'a', 'n', 'UTF-8');
-            if state.logFID < 0
-                error('MPPT:LogOpen', '无法创建实时日志：%s', state.logPath);
-            end
-            configureCallback(candidate, 'terminator', @onSerialLine);
-            connectionLabel.Text = sprintf('已连接 %s @ %d', portName, baud);
-            connectionLabel.FontColor = colors.green;
-            statusDetail.Text = ['正在接收；日志：', state.logPath];
-            reportLabel.Text = '等待串口数据…';
+            state.serial = serialport(portName, str2double(baudDrop.Value), ...
+                'DataBits', 8, 'Parity', 'none', 'StopBits', 1, ...
+                'FlowControl', 'none', 'Timeout', 1);
+            configureCallback(state.serial, 'off');
+            state.serialPort = portName; state.serialBaud = str2double(baudDrop.Value);
+            state.connectionText = sprintf('%s @ %d', portName, state.serialBaud);
+            state.receiver = mppt.TelemetryReceiver(struct('SourceSystem',sysField.Value, ...
+                'SourceComponent',compField.Value));
+            localStartReception();
         catch ME
-            if ~isempty(state.serial)
-                localDisconnect();
-            elseif exist('candidate', 'var')
-                try
-                    configureCallback(candidate, 'off');
-                catch
-                end
-            end
-            extra = '';
-            lowerMessage = lower(ME.message);
-            if contains(lowerMessage, 'busy') || contains(lowerMessage, 'access') || ...
-                    contains(lowerMessage, 'in use')
-                extra = sprintf('\n\n串口可能正在被串口助手或其他程序占用，请关闭其他串口软件后重试。');
-            end
-            localShowError('串口连接失败', [ME.message, extra]);
+            localDisconnect(); localShowError('串口连接失败', ME.message);
         end
+    end
+
+    function connectUDP(~, ~)
+        if ~strcmp(state.mode, '实时UDP')
+            modeDrop.Value = '实时UDP'; onModeChanged(modeDrop, []);
+        end
+        localDisconnect(); localResetRealtime();
+        try
+            if isempty(which('udpport'))
+                error('MPPT:UDPUnavailable', '当前MATLAB没有udpport能力；串口模式仍可使用。');
+            end
+            state.udp = udpport('datagram', 'IPV4', 'LocalHost', '0.0.0.0', ...
+                'LocalPort', udpPortField.Value, 'Timeout', 1);
+            configureCallback(state.udp, 'off');
+            state.connectionText = sprintf('UDP 0.0.0.0:%d', udpPortField.Value);
+            state.receiver = mppt.TelemetryReceiver(struct('SourceSystem',udpSysField.Value, ...
+                'SourceComponent',udpCompField.Value));
+            localStartReception();
+        catch ME
+            localDisconnect(); localShowError('UDP监听失败', ME.message);
+        end
+    end
+
+    function localStartReception()
+        logDir = fullfile(projectRoot, 'realtime_logs');
+        if ~isfolder(logDir), mkdir(logDir); end
+        base = ['MPPT_',datestr(now,'yyyymmdd_HHMMSS')];
+        state.logPath = fullfile(logDir,[base,'.log']);
+        suffix = 0;
+        while isfile(state.logPath)
+            suffix = suffix+1;
+            state.logPath = fullfile(logDir,sprintf('%s_%02d.log',base,suffix));
+        end
+        % Binary fwrite preserves original UTF-8, LF and CRLF without an extra LF.
+        state.logFID = fopen(state.logPath, 'wb');
+        if state.logFID < 0, error('MPPT:LogOpen','无法创建日志：%s',state.logPath); end
+        state.receiveTimer = timer('ExecutionMode','fixedSpacing','Period',0.1, ...
+            'BusyMode','drop','Name','MPPT byte reception', ...
+            'TimerFcn',@onReceiveTick,'ErrorFcn',@onReceiveError);
+        start(state.receiveTimer); localUpdateConnectionStatus();
+        fileLabel.Text = ['日志：', getFileName(state.logPath)];
+        fileLabel.Tooltip = state.logPath;
     end
 
     function disconnectSerial(~, ~)
@@ -418,95 +470,142 @@ end
     end
 
     function localDisconnect()
-        if ~isempty(state.serial)
-            try
-                configureCallback(state.serial, 'off');
-            catch
-            end
-            try
-                delete(state.serial); % 显式释放，即使外部仍持有该句柄。
-            catch
-            end
-            state.serial = [];
+        if ~isempty(state.receiveTimer)
+            try, stop(state.receiveTimer); catch, end
+            try, delete(state.receiveTimer); catch, end
+            state.receiveTimer = [];
         end
-        if isnumeric(state.logFID) && state.logFID >= 0
-            try
-                fclose(state.logFID);
-            catch
+        transports = {state.serial,state.udp};
+        state.serial = []; state.udp = [];
+        for k = 1:numel(transports)
+            if ~isempty(transports{k})
+                try, configureCallback(transports{k}, 'off'); catch, end
+                try, delete(transports{k}); catch, end
             end
+        end
+        if state.logFID >= 0
+            try, fclose(state.logFID); catch, end
             state.logFID = -1;
         end
-        if strcmp(state.mode, '实时串口') && ~state.closing
-            connectionLabel.Text = '未连接';
+        state.receiver.reset();
+        if any(strcmp(state.mode, {'实时串口','实时UDP'})) && ~state.closing
+            connectionLabel.Text = '未连接 · 协议：等待识别';
             connectionLabel.FontColor = colors.muted;
-            if state.validCount > 0
-                reportLabel.Text = sprintf('串口已断开  ·  有效 %d  ·  坏数据 %d', ...
-                    state.validCount, state.invalidCount);
-            end
+            reportLabel.Text = sprintf('已断开 · 有效 %d',state.validCount);
         end
     end
 
-    function onSerialLine(src, ~)
-        if state.closing || isempty(state.serial)
-            return;
-        end
+    function onReceiveTick(~, ~)
+        if state.closing || state.pollBusy, return; end
+        state.pollBusy = true;
         try
-            rawLine = readline(src);
-            localConsumeLine(char(rawLine), true);
+            now_s = toc(state.receiveClock);
+            state.receiver.expire(now_s); % Cleanup also runs with no incoming bytes.
+            if ~isempty(state.serial)
+                count = min(double(state.serial.NumBytesAvailable),65536);
+                if count > 0
+                    bytes = uint8(read(state.serial,count,'uint8'));
+                    localConsumeBytes(bytes,['serial:',state.serialPort],now_s);
+                end
+            elseif ~isempty(state.udp)
+                count = min(double(state.udp.NumDatagramsAvailable),128);
+                if count > 0
+                    datagrams = read(state.udp,count,'uint8');
+                    for k = 1:numel(datagrams)
+                        if state.closing || isempty(state.udp), break; end
+                        endpoint = sprintf('udp:%s:%d',char(datagrams(k).SenderAddress), ...
+                            double(datagrams(k).SenderPort));
+                        localConsumeBytes(uint8(datagrams(k).Data),endpoint,now_s);
+                    end
+                end
+            end
+            if ~state.closing, localUpdateConnectionStatus(); end
         catch ME
-            if ~state.closing
-                connectionLabel.Text = '串口读取中断';
-                connectionLabel.FontColor = colors.red;
-                localShowError('串口读取中断', ME.message);
-                localDisconnect();
+            state.pollBusy = false;
+            rethrow(ME);
+        end
+        state.pollBusy = false;
+    end
+
+    function onReceiveError(~, evt)
+        if state.closing, return; end
+        localDisconnect(); localShowError('遥测接收中断',evt.Data.Message);
+    end
+
+    function localConsumeBytes(bytes,endpoint,now_s)
+        events = state.receiver.feed(uint8(bytes),endpoint,now_s);
+        for k = 1:numel(events)
+            if state.closing || (isempty(state.serial) && isempty(state.udp)), break; end
+            e = events{k};
+            if state.logFID >= 0, fwrite(state.logFID,e.rawBytes,'uint8'); end
+            state.totalCount = state.totalCount+1;
+            if e.valid
+                localAcceptRecord(e.record,true,e.meta);
+            else
+                state.invalidCount=state.invalidCount+1;
             end
         end
     end
 
-    function localConsumeLine(rawLine, isSerialLine)
-        if isSerialLine
-            received_s = toc(state.receiveClock);
-        end
-        state.totalCount = state.totalCount + 1;
-        if isSerialLine && isnumeric(state.logFID) && state.logFID >= 0
-            fprintf(state.logFID, '%s\n', rawLine);
-            % fflush(state.logFID);
-        end
-        [record, isValid, info] = mppt.parseTelemetryLine(rawLine);
-        if ~isValid
-            state.invalidCount = state.invalidCount + 1;
-            if strcmp(state.mode, '实时串口')
-                reportLabel.Text = sprintf('已接收 %d 行  ·  有效 %d  ·  坏数据 %d（%s）', ...
-                    state.totalCount, state.validCount, state.invalidCount, info.reason);
-            else
-                reportLabel.Text = sprintf('Replay 读取 %d 行  ·  有效 %d  ·  跳过 %d', ...
-                    state.totalCount, state.validCount, state.invalidCount);
-            end
+    function localConsumeLine(rawLine, ~)
+        % Replay keeps the existing text/history parser and file semantics.
+        state.totalCount=state.totalCount+1;
+        [record,valid]=mppt.parseTelemetryLine(rawLine);
+        if ~valid
+            state.invalidCount=state.invalidCount+1;
+            reportLabel.Text=sprintf('Replay有效 %d · 跳过 %d',state.validCount,state.invalidCount);
             return;
         end
-        [state.buffer, data] = mppt.realtimeBuffer('append', state.buffer, record);
-        state.data = data;
-        if isSerialLine
-            if state.receiveCount == 0
-                state.receiveFirst_s = received_s;
-            end
-            state.receiveLast_s = received_s;
-            state.receiveCount = state.receiveCount + 1;
+        localAcceptRecord(record,false,[]);
+    end
+
+    function localAcceptRecord(record,isLive,meta)
+        [state.buffer,data]=mppt.realtimeBuffer('append',state.buffer,record,meta);
+        state.data=data; state.validCount=state.validCount+1;
+        state.lastValidDateTime=datetime('now');
+        if isLive
+            received_s=toc(state.receiveClock);
+            if state.receiveCount==0, state.receiveFirst_s=received_s; end
+            state.receiveLast_s=received_s; state.receiveCount=state.receiveCount+1;
         end
-        state.validCount = state.validCount + 1;
-        state.lastValidDateTime = datetime('now');
-        localRenderRealtime(data);
-        localUpdateStatusFromData(data);
-        if strcmp(state.mode, '实时串口')
-            connectionLabel.Text = sprintf('正在接收 %s @ %d', state.serialPort, state.serialBaud);
-            connectionLabel.FontColor = colors.green;
-            reportLabel.Text = sprintf('实时有效 %d  ·  坏数据 %d  ·  最近 %s', ...
-                state.validCount, state.invalidCount, datestr(state.lastValidDateTime, 'HH:MM:SS'));
-        else
-            reportLabel.Text = sprintf('Replay 有效 %d  ·  跳过 %d  ·  最近 %s', ...
-                state.validCount, state.invalidCount, datestr(state.lastValidDateTime, 'HH:MM:SS'));
-        end
+        localRenderRealtime(data); localUpdateStatusFromData(data);
+        if isLive, localUpdateConnectionStatus();
+        else, reportLabel.Text=sprintf('Replay有效 %d · 跳过 %d',state.validCount,state.invalidCount); end
         drawnow limitrate;
+    end
+
+    function localUpdateConnectionStatus()
+        receiver=state.receiver; stats=receiver.Stats;
+        age=toc(state.receiveClock)-receiver.LastValid_s;
+        if isfinite(age)
+            health=sprintf('最近有效 %.1f s 前',age);
+            if age>3, health=[health,' · 遥测超时']; connectionLabel.FontColor=colors.red;
+            else, connectionLabel.FontColor=colors.green; end
+        elseif receiver.MavlinkSeen
+            health='已收到MAVLink，等待完整有效MPPT'; connectionLabel.FontColor=colors.muted;
+        else
+            health='等待有效MPPT'; connectionLabel.FontColor=colors.muted;
+        end
+        connectionLabel.Text=sprintf('%s · %s',state.connectionText,health);
+        connectionLabel.Tooltip=connectionLabel.Text;
+        reportLabel.Text=sprintf('有效 %d · 坏帧 %d · 重组超时 %d', ...
+            state.validCount,stats.BadFrames,stats.Timeouts);
+        if ~isempty(state.data), localUpdateStatusFromData(state.data); end
+        statusDetail.Text=sprintf('%s\n协议：%s\n来源：%s\n%s\n坏记录 %d · 迟到 %d · 其他来源 %d', ...
+            statusDetail.Text,receiver.Protocol,receiver.Source,health, ...
+            stats.BadRecords,stats.LateRecords,stats.IgnoredSources);
+        if isempty(state.data)
+            statusDetail.Text=sprintf('协议：%s\n%s\n%s\n坏帧 %d · 重组超时 %d', ...
+                receiver.Protocol,state.connectionText,health,stats.BadFrames,stats.Timeouts);
+        end
+    end
+
+    function exportCurrentCSV(~, ~)
+        if isempty(state.data), localShowError('无法导出','请先载入或接收有效遥测。'); return; end
+        [name,folder]=uiputfile('*.csv','导出本次完整数据','MPPT.csv');
+        if isequal(name,0), return; end
+        try, mppt.exportCSV(state.data,fullfile(folder,name));
+        catch ME, localShowError('CSV导出失败',ME.message); end
     end
 
     function onRangeChanged(~, ~)
@@ -559,6 +658,7 @@ end
         state.totalCount = 0;
         state.lastValidDateTime = NaT;
         state.data = [];
+        state.receiver.reset();
         state.receiveClock = tic;
         state.receiveFirst_s = NaN;
         state.receiveLast_s = NaN;
@@ -849,7 +949,7 @@ end
             detailParts{end+1} = sprintf('未知时间 %d 条；>10 s 缺口 %d 处。累计值不覆盖未知区间。', ...
                 clock.missingCount, clock.gapCount);
         end
-        if strcmp(state.mode, '实时串口') && state.receiveCount > 1 && ...
+        if any(strcmp(state.mode, {'实时串口','实时UDP'})) && state.receiveCount > 1 && ...
                 state.receiveLast_s > state.receiveFirst_s
             detailParts{end+1} = sprintf('有效接收约 %.2f Hz（电脑回调接收时刻）', ...
                 (state.receiveCount-1)/(state.receiveLast_s-state.receiveFirst_s));
@@ -859,16 +959,25 @@ end
 
     function localUpdateControlVisibility()
         currentMode = modeDrop.Value;
+        historyPanel.Layout.Row = 1;
+        serialPanel.Layout.Row = 1;
+        udpPanel.Layout.Row = 1;
+        replayPanel.Layout.Row = 1;
+        controlGrid.RowHeight = {'1x'};
         historyPanel.Layout.Column = [1 3];
         serialPanel.Layout.Column = [1 3];
+        udpPanel.Layout.Column = [1 3];
         replayPanel.Layout.Column = [1 3];
         rangeDrop.Enable = ~strcmp(currentMode, '历史文件');
         customRange.Enable = ~strcmp(currentMode, '历史文件') && strcmp(rangeDrop.Value, '自定义');
         historyPanel.Visible = strcmp(currentMode, '历史文件');
         serialPanel.Visible = strcmp(currentMode, '实时串口');
+        udpPanel.Visible = strcmp(currentMode, '实时UDP');
         replayPanel.Visible = strcmp(currentMode, '模拟实时');
         if strcmp(currentMode, '实时串口')
             modeLabel.Text = '实时串口模式';
+        elseif strcmp(currentMode, '实时UDP')
+            modeLabel.Text = '实时UDP模式';
         elseif strcmp(currentMode, '模拟实时')
             modeLabel.Text = 'Replay 模式';
         else
